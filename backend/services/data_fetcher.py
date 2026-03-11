@@ -15,6 +15,7 @@ import threading
 import io
 from apscheduler.schedulers.background import BackgroundScheduler
 import concurrent.futures
+import heapq
 from sgp4.api import Satrec, WGS72
 from sgp4.api import jday
 from datetime import datetime
@@ -80,6 +81,25 @@ opensky_client = OpenSkyClient(
 # Throttling and caching for OpenSky to observe the 400 req/day limit
 last_opensky_fetch = 0
 cached_opensky_flights = []
+
+# ---------------------------------------------------------------------------
+# Supplemental ADS-B sources for blind-spot gap-filling (Russia/China/Africa)
+# These aggregators have different feeder pools than adsb.lol and can surface
+# aircraft invisible to our primary source.  Only gap-fill planes are kept.
+# ---------------------------------------------------------------------------
+_BLIND_SPOT_REGIONS = [
+    {"name": "Yekaterinburg",  "lat": 56.8, "lon": 60.6,  "radius_nm": 250},
+    {"name": "Novosibirsk",   "lat": 55.0, "lon": 82.9,  "radius_nm": 250},
+    {"name": "Krasnoyarsk",   "lat": 56.0, "lon": 92.9,  "radius_nm": 250},
+    {"name": "Vladivostok",   "lat": 43.1, "lon": 131.9, "radius_nm": 250},
+    {"name": "Urumqi",        "lat": 43.8, "lon": 87.6,  "radius_nm": 250},
+    {"name": "Chengdu",       "lat": 30.6, "lon": 104.1, "radius_nm": 250},
+    {"name": "Lagos-Accra",   "lat": 6.5,  "lon": 3.4,   "radius_nm": 250},
+    {"name": "Addis Ababa",   "lat": 9.0,  "lon": 38.7,  "radius_nm": 250},
+]
+_SUPPLEMENTAL_FETCH_INTERVAL = 120  # seconds — only query every 2 min
+last_supplemental_fetch = 0
+cached_supplemental_flights = []
 
 
 
@@ -480,27 +500,31 @@ def fetch_news():
     latest_data['news'] = news_items
     _mark_fresh("news")
 
+def _fetch_single_ticker(symbol: str, period: str = "2d"):
+    """Fetch a single yfinance ticker. Returns (symbol, data_dict) or (symbol, None)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period)
+        if len(hist) >= 1:
+            current_price = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[0] if len(hist) > 1 else current_price
+            change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
+            return symbol, {
+                "price": round(float(current_price), 2),
+                "change_percent": round(float(change_percent), 2),
+                "up": bool(change_percent >= 0)
+            }
+    except Exception as e:
+        logger.warning(f"Could not fetch data for {symbol}: {e}")
+    return symbol, None
+
+
 def fetch_defense_stocks():
     tickers = ["RTX", "LMT", "NOC", "GD", "BA", "PLTR"]
-    stocks_data = {}
     try:
-        for t in tickers:
-            try:
-                ticker = yf.Ticker(t)
-                hist = ticker.history(period="2d")
-                if len(hist) >= 1:
-                    current_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[0] if len(hist) > 1 else current_price
-                    change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
-                    
-                    stocks_data[t] = {
-                        "price": round(float(current_price), 2),
-                        "change_percent": round(float(change_percent), 2),
-                        "up": bool(change_percent >= 0)
-                    }
-            except Exception as e:
-                logger.warning(f"Could not fetch data for {t}: {e}")
-                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = pool.map(lambda t: _fetch_single_ticker(t, "2d"), tickers)
+        stocks_data = {sym: data for sym, data in results if data}
         latest_data['stocks'] = stocks_data
         _mark_fresh("stocks")
     except Exception as e:
@@ -509,25 +533,10 @@ def fetch_defense_stocks():
 def fetch_oil_prices():
     # CL=F is Crude Oil, BZ=F is Brent Crude
     tickers = {"WTI Crude": "CL=F", "Brent Crude": "BZ=F"}
-    oil_data = {}
     try:
-        for name, symbol in tickers.items():
-            try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="5d")
-                if len(hist) >= 2:
-                    current_price = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[-2]
-                    change_percent = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
-                    
-                    oil_data[name] = {
-                        "price": round(float(current_price), 2),
-                        "change_percent": round(float(change_percent), 2),
-                        "up": bool(change_percent >= 0)
-                    }
-            except Exception as e:
-                logger.warning(f"Could not fetch data for {symbol}: {e}")
-                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = pool.map(lambda item: (_fetch_single_ticker(item[1], "5d")[1], item[0]), tickers.items())
+        oil_data = {name: data for data, name in results if data}
         latest_data['oil'] = oil_data
         _mark_fresh("oil")
     except Exception as e:
@@ -611,6 +620,87 @@ _HELI_TYPES_BACKEND = {
     "MD52", "MD60", "MDHI", "MD90", "NOTR",
     "B47G", "HUEY", "GAMA", "CABR", "EXE",
 }
+
+
+def _fetch_supplemental_sources(seen_hex: set) -> list:
+    """Fetch from airplanes.live and adsb.fi to fill blind-spot gaps.
+
+    Only returns aircraft whose ICAO hex is NOT already in seen_hex.
+    Throttled to run every _SUPPLEMENTAL_FETCH_INTERVAL seconds.
+    Fully wrapped in try/except — returns [] on any failure.
+    """
+    global last_supplemental_fetch, cached_supplemental_flights
+
+    now = time.time()
+    if now - last_supplemental_fetch < _SUPPLEMENTAL_FETCH_INTERVAL:
+        # Return cached results, but still filter against current seen_hex
+        return [f for f in cached_supplemental_flights
+                if f.get("hex", "").lower().strip() not in seen_hex]
+
+    new_supplemental = []
+    supplemental_hex = set()  # track hex within supplemental to avoid internal dupes
+
+    # --- airplanes.live (parallel, all hotspots) ---
+    def _fetch_airplaneslive(region):
+        try:
+            url = (f"https://api.airplanes.live/v2/point/"
+                   f"{region['lat']}/{region['lon']}/{region['radius_nm']}")
+            res = fetch_with_curl(url, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("ac", [])
+        except Exception as e:
+            logger.debug(f"airplanes.live {region['name']} failed: {e}")
+        return []
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(_fetch_airplaneslive, _BLIND_SPOT_REGIONS))
+        for region_flights in results:
+            for f in region_flights:
+                h = f.get("hex", "").lower().strip()
+                if h and h not in seen_hex and h not in supplemental_hex:
+                    f["supplemental_source"] = "airplanes.live"
+                    new_supplemental.append(f)
+                    supplemental_hex.add(h)
+    except Exception as e:
+        logger.warning(f"airplanes.live supplemental fetch failed: {e}")
+
+    ap_count = len(new_supplemental)
+
+    # --- adsb.fi (sequential, 1.1s between requests to respect 1 req/sec limit) ---
+    try:
+        for region in _BLIND_SPOT_REGIONS:
+            try:
+                url = (f"https://opendata.adsb.fi/api/v3/lat/"
+                       f"{region['lat']}/lon/{region['lon']}/dist/{region['radius_nm']}")
+                res = fetch_with_curl(url, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    for f in data.get("ac", []):
+                        h = f.get("hex", "").lower().strip()
+                        if h and h not in seen_hex and h not in supplemental_hex:
+                            f["supplemental_source"] = "adsb.fi"
+                            new_supplemental.append(f)
+                            supplemental_hex.add(h)
+            except Exception as e:
+                logger.debug(f"adsb.fi {region['name']} failed: {e}")
+            time.sleep(1.1)  # Rate limit: 1 req/sec
+    except Exception as e:
+        logger.warning(f"adsb.fi supplemental fetch failed: {e}")
+
+    fi_count = len(new_supplemental) - ap_count
+
+    cached_supplemental_flights = new_supplemental
+    last_supplemental_fetch = now
+    if new_supplemental:
+        _mark_fresh("supplemental_flights")
+
+    logger.info(f"Supplemental: +{len(new_supplemental)} new aircraft from blind-spot "
+                f"hotspots (airplanes.live: {ap_count}, adsb.fi: {fi_count})")
+
+    return new_supplemental
+
 
 def fetch_flights():
     # OpenSky Network public API for flights. We want to demonstrate global coverage.
@@ -712,7 +802,22 @@ def fetch_flights():
                 all_adsb_flights.append(osf)
                 seen_hex.add(h.lower().strip())
 
-                    
+        # -------------------------------------------------------------------
+        # Supplemental Sources: airplanes.live + adsb.fi (blind-spot gap-fill)
+        # Only adds aircraft whose ICAO hex is NOT already in seen_hex.
+        # -------------------------------------------------------------------
+        try:
+            gap_fill = _fetch_supplemental_sources(seen_hex)
+            for f in gap_fill:
+                all_adsb_flights.append(f)
+                h = f.get("hex", "").lower().strip()
+                if h:
+                    seen_hex.add(h)
+            if gap_fill:
+                logger.info(f"Gap-fill: added {len(gap_fill)} aircraft to pipeline")
+        except Exception as e:
+            logger.warning(f"Supplemental source fetch failed (non-fatal): {e}")
+
         if all_adsb_flights:
             
             # The user requested maximum flight density. Rendering all available aircraft.
@@ -1333,9 +1438,8 @@ def fetch_firms_fires():
                     })
                 except (ValueError, TypeError):
                     continue
-            # Sort by FRP descending, keep top 5000 (most intense fires first)
-            all_rows.sort(key=lambda x: x["frp"], reverse=True)
-            fires = all_rows[:5000]
+            # Keep top 5000 by FRP (most intense fires first) — heapq is O(n) vs O(n log n) sort
+            fires = heapq.nlargest(5000, all_rows, key=lambda x: x["frp"])
         logger.info(f"FIRMS fires: {len(fires)} hotspots (from {response.status_code})")
     except Exception as e:
         logger.error(f"Error fetching FIRMS fires: {e}")
@@ -1471,9 +1575,8 @@ def fetch_internet_outages():
                     r["lat"] = coords[0]
                     r["lng"] = coords[1]
                     geocoded.append(r)
-            # Sort by severity descending, cap at 100
-            geocoded.sort(key=lambda x: x["severity"], reverse=True)
-            outages = geocoded[:100]
+            # Keep top 100 by severity
+            outages = heapq.nlargest(100, geocoded, key=lambda x: x["severity"])
         logger.info(f"Internet outages: {len(outages)} regions affected")
     except Exception as e:
         logger.error(f"Error fetching internet outages: {e}")
@@ -2219,8 +2322,8 @@ def start_scheduler():
     scheduler.add_job(update_liveuamap, 'date', run_date=datetime.now())
     scheduler.add_job(update_liveuamap, 'interval', hours=12)
     
-    # Geopolitics (frontlines) more frequently than other slow data
-    scheduler.add_job(fetch_geopolitics, 'interval', minutes=5)
+    # Geopolitics (frontlines) aligned with slow-data tier
+    scheduler.add_job(fetch_geopolitics, 'interval', minutes=30)
     
     scheduler.start()
 

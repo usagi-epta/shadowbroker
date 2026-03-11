@@ -77,6 +77,15 @@ async def force_refresh():
 async def live_data():
     return get_latest_data()
 
+def _etag_response(request: Request, payload: dict, prefix: str = "", default=None):
+    """Serialize once, hash the bytes for ETag, return 304 or full response."""
+    content = json_mod.dumps(payload, default=default)
+    etag = hashlib.md5(f"{prefix}{content[:256]}".encode()).hexdigest()[:16]
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
+    return Response(content=content, media_type="application/json",
+                    headers={"ETag": etag, "Cache-Control": "no-cache"})
+
 @app.get("/api/live-data/fast")
 async def live_data_fast(request: Request):
     d = get_latest_data()
@@ -87,25 +96,13 @@ async def live_data_fast(request: Request):
         "private_jets": d.get("private_jets", []),
         "tracked_flights": d.get("tracked_flights", []),
         "ships": d.get("ships", []),
-        "satellites": d.get("satellites", []),
         "cctv": d.get("cctv", []),
         "uavs": d.get("uavs", []),
         "liveuamap": d.get("liveuamap", []),
         "gps_jamming": d.get("gps_jamming", []),
         "freshness": dict(source_timestamps),
     }
-    # ETag includes last_updated timestamp so it changes on every data refresh,
-    # not just when item counts change (old bug: positions went stale)
-    last_updated = d.get("last_updated", "")
-    counts = "|".join(f"{k}:{len(v) if isinstance(v, list) else 0}" for k, v in payload.items() if k != "freshness")
-    etag = hashlib.md5(f"{last_updated}|{counts}".encode()).hexdigest()[:16]
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
-    return Response(
-        content=json_mod.dumps(payload),
-        media_type="application/json",
-        headers={"ETag": etag, "Cache-Control": "no-cache"}
-    )
+    return _etag_response(request, payload, prefix="fast|")
 
 @app.get("/api/live-data/slow")
 async def live_data_slow(request: Request):
@@ -129,17 +126,7 @@ async def live_data_slow(request: Request):
         "datacenters": d.get("datacenters", []),
         "freshness": dict(source_timestamps),
     }
-    # ETag based on last_updated + item counts
-    last_updated = d.get("last_updated", "")
-    counts = "|".join(f"{k}:{len(v) if isinstance(v, list) else 0}" for k, v in payload.items() if k != "freshness")
-    etag = hashlib.md5(f"slow|{last_updated}|{counts}".encode()).hexdigest()[:16]
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
-    return Response(
-        content=json_mod.dumps(payload, default=str),
-        media_type="application/json",
-        headers={"ETag": etag, "Cache-Control": "no-cache"}
-    )
+    return _etag_response(request, payload, prefix="slow|", default=str)
 
 @app.get("/api/debug-latest")
 async def debug_latest_data():

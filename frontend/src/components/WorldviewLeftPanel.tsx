@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plane, AlertTriangle, Activity, Satellite, Cctv, ChevronDown, ChevronUp, Ship, Eye, Anchor, Settings, Sun, Moon, BookOpen, Radio, Play, Pause, Globe, Flame, Wifi, Server } from "lucide-react";
 import { useTheme } from "@/lib/ThemeContext";
@@ -70,10 +70,19 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({ data, active
         return () => { if (gibsIntervalRef.current) clearInterval(gibsIntervalRef.current); };
     }, [gibsPlaying, gibsDate, setGibsDate]);
 
-    // Compute ship category counts
-    const importantShipCount = data?.ships?.filter((s: any) => ['carrier', 'military_vessel', 'tanker', 'cargo'].includes(s.type))?.length || 0;
-    const passengerShipCount = data?.ships?.filter((s: any) => s.type === 'passenger')?.length || 0;
-    const civilianShipCount = data?.ships?.filter((s: any) => !['carrier', 'military_vessel', 'tanker', 'cargo', 'passenger'].includes(s.type))?.length || 0;
+    // Compute ship category counts (memoized — ships array can be 1000+ items)
+    const { importantShipCount, passengerShipCount, civilianShipCount } = useMemo(() => {
+        const ships = data?.ships;
+        if (!ships || !ships.length) return { importantShipCount: 0, passengerShipCount: 0, civilianShipCount: 0 };
+        let important = 0, passenger = 0, civilian = 0;
+        for (const s of ships) {
+            const t = s.type;
+            if (t === 'carrier' || t === 'military_vessel' || t === 'tanker' || t === 'cargo') important++;
+            else if (t === 'passenger') passenger++;
+            else civilian++;
+        }
+        return { importantShipCount: important, passengerShipCount: passenger, civilianShipCount: civilian };
+    }, [data?.ships]);
 
     const layers = [
         { id: "flights", name: "Commercial Flights", source: "adsb.lol", count: data?.commercial_flights?.length || 0, icon: Plane },

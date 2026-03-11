@@ -125,6 +125,13 @@ const svgHeliGrey = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="h
 // Grey icon map for grounded aircraft
 const GROUNDED_ICON_MAP: Record<string, string> = { heli: 'svgHeliGrey', turboprop: 'svgTurbopropGrey', bizjet: 'svgBizjetGrey', airliner: 'svgAirlinerGrey' };
 
+// Per-layer color maps (module-level to avoid re-allocation every render tick)
+const COLOR_MAP_COMMERCIAL: Record<string, string> = { heli: 'svgHeliCyan', turboprop: 'svgTurbopropCyan', bizjet: 'svgBizjetCyan', airliner: 'svgAirlinerCyan' };
+const COLOR_MAP_PRIVATE: Record<string, string> = { heli: 'svgHeliOrange', turboprop: 'svgTurbopropOrange', bizjet: 'svgBizjetOrange', airliner: 'svgAirlinerOrange' };
+const COLOR_MAP_JETS: Record<string, string> = { heli: 'svgHeliPurple', turboprop: 'svgTurbopropPurple', bizjet: 'svgBizjetPurple', airliner: 'svgAirlinerPurple' };
+const COLOR_MAP_MILITARY: Record<string, string> = { heli: 'svgHeli', turboprop: 'svgTurbopropYellow', bizjet: 'svgBizjetYellow', airliner: 'svgAirlinerYellow' };
+const MIL_SPECIAL_MAP: Record<string, string> = { fighter: 'svgFighter', tanker: 'svgTanker', recon: 'svgRecon' };
+
 // ICAO type code -> aircraft shape classification
 const HELI_TYPES = new Set(['R22', 'R44', 'R66', 'B06', 'B05', 'B47G', 'B105', 'B212', 'B222', 'B230', 'B407', 'B412', 'B429', 'B430', 'B505', 'BK17', 'S55', 'S58', 'S61', 'S64', 'S70', 'S76', 'S92', 'A109', 'A119', 'A139', 'A169', 'A189', 'AW09', 'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75', 'H125', 'H130', 'H135', 'H145', 'H155', 'H160', 'H175', 'H215', 'H225', 'AS32', 'AS35', 'AS50', 'AS55', 'AS65', 'MD52', 'MD60', 'MDHI', 'MD90', 'NOTR', 'HUEY', 'GAMA', 'CABR', 'EXE', 'R300', 'R480', 'LAMA', 'ALLI', 'PUMA', 'NH90', 'CH47', 'UH1', 'UH60', 'AH64', 'MI8', 'MI24', 'MI26', 'MI28', 'KA52', 'K32', 'LYNX', 'WILD', 'MRLX', 'A149', 'A119']);
 const TURBOPROP_TYPES = new Set(['AT43', 'AT45', 'AT72', 'AT73', 'AT75', 'AT76', 'B190', 'B350', 'BE20', 'BE30', 'BE40', 'BE9L', 'BE99', 'C130', 'C160', 'C208', 'C212', 'C295', 'CN35', 'D228', 'D328', 'DHC2', 'DHC3', 'DHC4', 'DHC5', 'DHC6', 'DHC7', 'DHC8', 'DO28', 'DH8A', 'DH8B', 'DH8C', 'DH8D', 'E110', 'E120', 'F27', 'F406', 'F50', 'G159', 'G73T', 'J328', 'JS31', 'JS32', 'JS41', 'L188', 'MA60', 'M28', 'N262', 'P68', 'P180', 'PA31', 'PA42', 'PC12', 'PC21', 'PC24', 'S2', 'S340', 'SF34', 'SF50', 'SW4', 'TRIS', 'TBM7', 'TBM8', 'TBM9', 'C30J', 'C5M', 'AN12', 'AN24', 'AN26', 'AN30', 'AN32', 'IL18', 'L410', 'Y12', 'BALL', 'AEST', 'AC68', 'AC80', 'AC90', 'AC95', 'AC11', 'C172', 'C182', 'C206', 'C210', 'C310', 'C337', 'C402', 'C414', 'C421', 'C425', 'C441', 'M20P', 'M20T', 'PA28', 'PA32', 'PA34', 'PA44', 'PA46', 'PA60', 'P28A', 'P28B', 'P28R', 'P32R', 'P46T', 'SR20', 'SR22', 'DA40', 'DA42', 'DA62', 'RV10', 'BE33', 'BE35', 'BE36', 'BE55', 'BE58', 'DR40', 'TB20', 'AA5']);
@@ -579,96 +586,93 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
             }
         });
 
-        // Legacy generic plane icons (still used as fallbacks)
+        // Critical icons — needed immediately for default-on layers
         loadImg('svgPlaneCyan', svgPlaneCyan);
         loadImg('svgPlaneYellow', svgPlaneYellow);
         loadImg('svgPlaneOrange', svgPlaneOrange);
         loadImg('svgPlanePurple', svgPlanePurple);
-        loadImg('svgPlanePink', svgPlanePink);
-        loadImg('svgPlaneAlertRed', svgPlaneAlertRed);
-        loadImg('svgPlaneDarkBlue', svgPlaneDarkBlue);
-        loadImg('svgPlaneWhiteAlert', svgPlaneWhiteAlert);
-        loadImg('svgPlaneBlack', svgPlaneBlack);
-        // Heli icons
         loadImg('svgHeli', svgHeli);
         loadImg('svgHeliCyan', svgHeliCyan);
         loadImg('svgHeliOrange', svgHeliOrange);
         loadImg('svgHeliPurple', svgHeliPurple);
-        loadImg('svgHeliPink', svgHeliPink);
-        loadImg('svgHeliAlertRed', svgHeliAlertRed);
-        loadImg('svgHeliDarkBlue', svgHeliDarkBlue);
-        loadImg('svgHeliWhiteAlert', svgHeliWhiteAlert);
-        loadImg('svgHeliBlack', svgHeliBlack);
-        // Military special
         loadImg('svgFighter', svgFighter);
         loadImg('svgTanker', svgTanker);
         loadImg('svgRecon', svgRecon);
-        // Airliner icons (swept wings + engine pods)
         loadImg('svgAirlinerCyan', svgAirlinerCyan);
         loadImg('svgAirlinerOrange', svgAirlinerOrange);
         loadImg('svgAirlinerPurple', svgAirlinerPurple);
         loadImg('svgAirlinerYellow', svgAirlinerYellow);
-        loadImg('svgAirlinerPink', svgAirlinerPink);
-        loadImg('svgAirlinerRed', svgAirlinerRed);
-        loadImg('svgAirlinerDarkBlue', svgAirlinerDarkBlue);
-        loadImg('svgAirlinerWhite', svgAirlinerWhite);
-        // Turboprop icons (straight wings)
         loadImg('svgTurbopropCyan', svgTurbopropCyan);
         loadImg('svgTurbopropOrange', svgTurbopropOrange);
         loadImg('svgTurbopropPurple', svgTurbopropPurple);
         loadImg('svgTurbopropYellow', svgTurbopropYellow);
-        loadImg('svgTurbopropPink', svgTurbopropPink);
-        loadImg('svgTurbopropRed', svgTurbopropRed);
-        loadImg('svgTurbopropDarkBlue', svgTurbopropDarkBlue);
-        loadImg('svgTurbopropWhite', svgTurbopropWhite);
-        // Bizjet icons (sleek, T-tail)
         loadImg('svgBizjetCyan', svgBizjetCyan);
         loadImg('svgBizjetOrange', svgBizjetOrange);
         loadImg('svgBizjetPurple', svgBizjetPurple);
         loadImg('svgBizjetYellow', svgBizjetYellow);
-        loadImg('svgBizjetPink', svgBizjetPink);
-        loadImg('svgBizjetRed', svgBizjetRed);
-        loadImg('svgBizjetDarkBlue', svgBizjetDarkBlue);
-        loadImg('svgBizjetWhite', svgBizjetWhite);
-        // Grey grounded icons
         loadImg('svgAirlinerGrey', svgAirlinerGrey);
         loadImg('svgTurbopropGrey', svgTurbopropGrey);
         loadImg('svgBizjetGrey', svgBizjetGrey);
         loadImg('svgHeliGrey', svgHeliGrey);
-        loadImg('svgDrone', svgDrone);
         loadImg('svgShipGray', svgShipGray);
         loadImg('svgShipRed', svgShipRed);
         loadImg('svgShipYellow', svgShipYellow);
         loadImg('svgShipBlue', svgShipBlue);
         loadImg('svgShipWhite', svgShipWhite);
         loadImg('svgCarrier', svgCarrier);
-        loadImg('svgCctv', svgCctv);
         loadImg('svgWarning', svgWarning);
         loadImg('icon-threat', svgThreat);
-        loadImg('icon-liveua-yellow', svgTriangleYellow);
-        loadImg('icon-liveua-red', svgTriangleRed);
-        // FIRMS fire icons
-        loadImg('fire-yellow', svgFireYellow);
-        loadImg('fire-orange', svgFireOrange);
-        loadImg('fire-red', svgFireRed);
-        loadImg('fire-darkred', svgFireDarkRed);
-        loadImg('fire-cluster-sm', svgFireClusterSmall);
-        loadImg('fire-cluster-md', svgFireClusterMed);
-        loadImg('fire-cluster-lg', svgFireClusterLarge);
-        loadImg('fire-cluster-xl', svgFireClusterXL);
 
-        // Data center icon
-        loadImg('datacenter', svgDataCenter);
-
-        // Satellite mission-type icons
-        loadImg('sat-mil', makeSatSvg('#ff3333'));
-        loadImg('sat-sar', makeSatSvg('#00e5ff'));
-        loadImg('sat-sigint', makeSatSvg('#ffffff'));
-        loadImg('sat-nav', makeSatSvg('#4488ff'));
-        loadImg('sat-ew', makeSatSvg('#ff00ff'));
-        loadImg('sat-com', makeSatSvg('#44ff44'));
-        loadImg('sat-station', makeSatSvg('#ffdd00'));
-        loadImg('sat-gen', makeSatSvg('#aaaaaa'));
+        // Deferred icons — for off-by-default layers and rare variants
+        // Loaded in next frame to avoid blocking initial map render
+        setTimeout(() => {
+            loadImg('svgPlanePink', svgPlanePink);
+            loadImg('svgPlaneAlertRed', svgPlaneAlertRed);
+            loadImg('svgPlaneDarkBlue', svgPlaneDarkBlue);
+            loadImg('svgPlaneWhiteAlert', svgPlaneWhiteAlert);
+            loadImg('svgPlaneBlack', svgPlaneBlack);
+            loadImg('svgHeliPink', svgHeliPink);
+            loadImg('svgHeliAlertRed', svgHeliAlertRed);
+            loadImg('svgHeliDarkBlue', svgHeliDarkBlue);
+            loadImg('svgHeliWhiteAlert', svgHeliWhiteAlert);
+            loadImg('svgHeliBlack', svgHeliBlack);
+            loadImg('svgAirlinerPink', svgAirlinerPink);
+            loadImg('svgAirlinerRed', svgAirlinerRed);
+            loadImg('svgAirlinerDarkBlue', svgAirlinerDarkBlue);
+            loadImg('svgAirlinerWhite', svgAirlinerWhite);
+            loadImg('svgTurbopropPink', svgTurbopropPink);
+            loadImg('svgTurbopropRed', svgTurbopropRed);
+            loadImg('svgTurbopropDarkBlue', svgTurbopropDarkBlue);
+            loadImg('svgTurbopropWhite', svgTurbopropWhite);
+            loadImg('svgBizjetPink', svgBizjetPink);
+            loadImg('svgBizjetRed', svgBizjetRed);
+            loadImg('svgBizjetDarkBlue', svgBizjetDarkBlue);
+            loadImg('svgBizjetWhite', svgBizjetWhite);
+            loadImg('svgDrone', svgDrone);
+            loadImg('svgCctv', svgCctv);
+            loadImg('icon-liveua-yellow', svgTriangleYellow);
+            loadImg('icon-liveua-red', svgTriangleRed);
+            // FIRMS fire icons
+            loadImg('fire-yellow', svgFireYellow);
+            loadImg('fire-orange', svgFireOrange);
+            loadImg('fire-red', svgFireRed);
+            loadImg('fire-darkred', svgFireDarkRed);
+            loadImg('fire-cluster-sm', svgFireClusterSmall);
+            loadImg('fire-cluster-md', svgFireClusterMed);
+            loadImg('fire-cluster-lg', svgFireClusterLarge);
+            loadImg('fire-cluster-xl', svgFireClusterXL);
+            // Data center icon
+            loadImg('datacenter', svgDataCenter);
+            // Satellite mission-type icons
+            loadImg('sat-mil', makeSatSvg('#ff3333'));
+            loadImg('sat-sar', makeSatSvg('#00e5ff'));
+            loadImg('sat-sigint', makeSatSvg('#ffffff'));
+            loadImg('sat-nav', makeSatSvg('#4488ff'));
+            loadImg('sat-ew', makeSatSvg('#ff00ff'));
+            loadImg('sat-com', makeSatSvg('#44ff44'));
+            loadImg('sat-station', makeSatSvg('#ffdd00'));
+            loadImg('sat-gen', makeSatSvg('#aaaaaa'));
+        }, 0);
 
         setMapReady(true);
     }, []);
@@ -748,7 +752,6 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
     // Create GeoJSON collections dynamically (this runs ultra fast in pure JS)
     const commFlightsGeoJSON = useMemo(() => {
         if (!activeLayers.flights || !data?.commercial_flights) return null;
-        const colorMap: Record<string, string> = { heli: 'svgHeliCyan', turboprop: 'svgTurbopropCyan', bizjet: 'svgBizjetCyan', airliner: 'svgAirlinerCyan' };
         return {
             type: 'FeatureCollection',
             features: data.commercial_flights.map((f: any, i: number) => {
@@ -760,7 +763,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                 const [iLng, iLat] = interpFlight(f);
                 return {
                     type: 'Feature',
-                    properties: { id: i, type: 'flight', callsign: f.callsign || f.icao24, rotation: f.true_track || f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : colorMap[acType] },
+                    properties: { id: i, type: 'flight', callsign: f.callsign || f.icao24, rotation: f.true_track || f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_COMMERCIAL[acType] },
                     geometry: { type: 'Point', coordinates: [iLng, iLat] }
                 };
             }).filter(Boolean)
@@ -769,7 +772,6 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
 
     const privFlightsGeoJSON = useMemo(() => {
         if (!activeLayers.private || !data?.private_flights) return null;
-        const colorMap: Record<string, string> = { heli: 'svgHeliOrange', turboprop: 'svgTurbopropOrange', bizjet: 'svgBizjetOrange', airliner: 'svgAirlinerOrange' };
         return {
             type: 'FeatureCollection',
             features: data.private_flights.map((f: any, i: number) => {
@@ -781,7 +783,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                 const [iLng, iLat] = interpFlight(f);
                 return {
                     type: 'Feature',
-                    properties: { id: i, type: 'private_flight', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : colorMap[acType] },
+                    properties: { id: i, type: 'private_flight', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_PRIVATE[acType] },
                     geometry: { type: 'Point', coordinates: [iLng, iLat] }
                 };
             }).filter(Boolean)
@@ -790,7 +792,6 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
 
     const privJetsGeoJSON = useMemo(() => {
         if (!activeLayers.jets || !data?.private_jets) return null;
-        const colorMap: Record<string, string> = { heli: 'svgHeliPurple', turboprop: 'svgTurbopropPurple', bizjet: 'svgBizjetPurple', airliner: 'svgAirlinerPurple' };
         return {
             type: 'FeatureCollection',
             features: data.private_jets.map((f: any, i: number) => {
@@ -802,7 +803,7 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                 const [iLng, iLat] = interpFlight(f);
                 return {
                     type: 'Feature',
-                    properties: { id: i, type: 'private_jet', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : colorMap[acType] },
+                    properties: { id: i, type: 'private_jet', callsign: f.callsign || f.icao24, rotation: f.heading || 0, iconId: grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_JETS[acType] },
                     geometry: { type: 'Point', coordinates: [iLng, iLat] }
                 };
             }).filter(Boolean)
@@ -812,11 +813,6 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
     const milFlightsGeoJSON = useMemo(() => {
         if (!activeLayers.military || !data?.military_flights) return null;
 
-        // Special military types keep their unique icons
-        const milSpecialMap: any = { 'fighter': 'svgFighter', 'tanker': 'svgTanker', 'recon': 'svgRecon' };
-        // Fallback by aircraft shape for cargo/default
-        const milColorMap: Record<string, string> = { heli: 'svgHeli', turboprop: 'svgTurbopropYellow', bizjet: 'svgBizjetYellow', airliner: 'svgAirlinerYellow' };
-
         return {
             type: 'FeatureCollection',
             features: data.military_flights.map((f: any, i: number) => {
@@ -825,10 +821,10 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                 if (f.icao24 && trackedIcaoSet.has(f.icao24.toLowerCase())) return null;
                 const milType = f.military_type || 'default';
                 const grounded = f.alt != null && f.alt <= 100;
-                let iconId = milSpecialMap[milType];
+                let iconId = MIL_SPECIAL_MAP[milType];
                 if (!iconId) {
                     const acType = classifyAircraft(f.model, f.aircraft_category);
-                    iconId = grounded ? GROUNDED_ICON_MAP[acType] : milColorMap[acType];
+                    iconId = grounded ? GROUNDED_ICON_MAP[acType] : COLOR_MAP_MILITARY[acType];
                 } else if (grounded) {
                     const acType = classifyAircraft(f.model, f.aircraft_category);
                     iconId = GROUNDED_ICON_MAP[acType];
@@ -2487,20 +2483,30 @@ const MaplibreViewer = ({ data, activeLayers, onEntityClick, flyToLocation, sele
                                             {(() => {
                                                 const urls: string[] = data.gdelt[selectedEntity.id as number].properties?._urls_list || [];
                                                 const headlines: string[] = data.gdelt[selectedEntity.id as number].properties?._headlines_list || [];
-                                                if (urls.length === 0) return <span className="text-[var(--text-muted)] text-[9px]">No articles available.</span>;
-                                                return urls.map((url: string, idx: number) => (
-                                                    <a
-                                                        key={idx}
-                                                        href={url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="text-orange-400 text-[9px] underline hover:text-orange-300 block py-1 border-b border-[var(--border-primary)]/50 last:border-0 cursor-pointer"
-                                                        style={{ pointerEvents: 'all' }}
-                                                    >
-                                                        {headlines[idx] || url}
-                                                    </a>
-                                                ));
+                                                if (urls.length === 0) return <span className="text-[var(--text-muted)] text-[10px]">No articles available.</span>;
+                                                return urls.map((url: string, idx: number) => {
+                                                    const headline = headlines[idx] || '';
+                                                    let domain = '';
+                                                    try { domain = new URL(url).hostname.replace('www.', ''); } catch { domain = ''; }
+                                                    return (
+                                                        <a
+                                                            key={idx}
+                                                            href={url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="block py-1.5 border-b border-[var(--border-primary)]/50 last:border-0 cursor-pointer group"
+                                                            style={{ pointerEvents: 'all' }}
+                                                        >
+                                                            <span className="text-orange-400 text-[11px] font-bold leading-tight group-hover:text-orange-300 block">
+                                                                {headline || domain || 'View Article'}
+                                                            </span>
+                                                            {headline && domain && (
+                                                                <span className="text-[var(--text-muted)] text-[9px] block mt-0.5">{domain}</span>
+                                                            )}
+                                                        </a>
+                                                    );
+                                                });
                                             })()}
                                         </div>
                                     </div>

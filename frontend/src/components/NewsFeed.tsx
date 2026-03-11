@@ -667,10 +667,34 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                         </div>
                         <div className="flex flex-col gap-2 mt-2">
                             <span className="text-[var(--text-muted)] text-[10px]">LATEST REPORTS:</span>
-                            <div
-                                className="text-[var(--text-primary)] text-xs whitespace-normal [&_a]:text-orange-400 [&_a]:underline hover:[&_a]:text-orange-300 [&_br]:mb-2"
-                                dangerouslySetInnerHTML={{ __html: props.html || 'No articles available.' }}
-                            />
+                            <div className="flex flex-col gap-1 max-h-[250px] overflow-y-auto styled-scrollbar">
+                                {(() => {
+                                    const urls: string[] = props._urls_list || [];
+                                    const headlines: string[] = props._headlines_list || [];
+                                    if (urls.length === 0) return <span className="text-[var(--text-muted)] text-[10px]">No articles available.</span>;
+                                    return urls.map((url: string, idx: number) => {
+                                        const headline = headlines[idx] || '';
+                                        let domain = '';
+                                        try { domain = new URL(url).hostname.replace('www.', ''); } catch { domain = ''; }
+                                        return (
+                                            <a
+                                                key={idx}
+                                                href={url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="block py-1.5 border-b border-[var(--border-primary)]/50 last:border-0 cursor-pointer group"
+                                            >
+                                                <span className="text-orange-400 text-[11px] font-bold leading-tight group-hover:text-orange-300 block">
+                                                    {headline || domain || 'View Article'}
+                                                </span>
+                                                {headline && domain && (
+                                                    <span className="text-[var(--text-muted)] text-[9px] block mt-0.5">{domain}</span>
+                                                )}
+                                            </a>
+                                        );
+                                    });
+                                })()}
+                            </div>
                         </div>
                     </div>
                 </motion.div>
@@ -966,9 +990,9 @@ function NewsFeedInner({ data, selectedEntity, regionDossier, regionDossierLoadi
                                 <motion.div
                                     key={idx}
                                     ref={(el) => { itemRefs.current[idx] = el; }}
-                                    initial={{ opacity: 0, x: -10 }}
+                                    initial={idx < 15 ? { opacity: 0, x: -10 } : { opacity: 1, x: 0 }}
                                     animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: 0.1 + (idx * 0.05) }}
+                                    transition={idx < 15 ? { delay: 0.1 + (idx * 0.05) } : { duration: 0 }}
                                     className={`p-2 rounded-sm border-l-[2px] border-r border-t border-b ${bgClass} flex flex-col gap-1 relative group shrink-0`}
                                 >
                                     <div className="flex items-center justify-between text-[8px] text-[var(--text-secondary)] uppercase tracking-widest">
